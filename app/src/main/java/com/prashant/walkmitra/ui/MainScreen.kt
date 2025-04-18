@@ -1,8 +1,3 @@
-@file:OptIn(
-    androidx.compose.material3.ExperimentalMaterial3Api::class,
-    com.google.accompanist.permissions.ExperimentalPermissionsApi::class
-)
-
 package com.prashant.walkmitra.ui
 
 import android.Manifest
@@ -16,7 +11,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
@@ -24,13 +18,14 @@ import com.google.accompanist.permissions.*
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.model.*
 import com.google.maps.android.compose.*
+import com.prashant.walkmitra.data.UserProfile
 import com.prashant.walkmitra.location.LocationService
-import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
-
+@OptIn(ExperimentalPermissionsApi::class, ExperimentalMaterial3Api::class)
 @Composable
-fun MainScreen(navController: NavController) {
+fun MainScreen(navController: NavController, userProfile: UserProfile?) {
     val context = LocalContext.current
     val locationService = remember { LocationService(context) }
     val scope = rememberCoroutineScope()
@@ -42,8 +37,10 @@ fun MainScreen(navController: NavController) {
 
     var distance by remember { mutableStateOf(0.0) }
     var calories by remember { mutableStateOf(0.0) }
+    var speed by remember { mutableStateOf(0.0) }
 
     var lastLocation by remember { mutableStateOf<Location?>(null) }
+    var lastTime by remember { mutableStateOf(0L) }
     var pathPoints by remember { mutableStateOf(listOf<LatLng>()) }
 
     val cameraPositionState = rememberCameraPositionState()
@@ -58,8 +55,6 @@ fun MainScreen(navController: NavController) {
             }
         }
     }
-
-
 
     Scaffold(
         topBar = {
@@ -80,128 +75,147 @@ fun MainScreen(navController: NavController) {
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
-                .padding(8.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Google Map
-            GoogleMap(
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .fillMaxHeight(0.8f),
-                cameraPositionState = cameraPositionState
+                    .weight(0.7f)
             ) {
-                if (pathPoints.isNotEmpty()) {
-                    Polyline(
-                        points = pathPoints,
-                        color = Color(0xFF1E88E5), // ✅ Use Compose color directly
-
-                        width = 8f
-                    )
-                    Marker(
-                        state = MarkerState(position = pathPoints.last()),
-                        title = "You",
-                        snippet = "Current Location"
-                    )
+                GoogleMap(
+                    modifier = Modifier.fillMaxSize(),
+                    cameraPositionState = cameraPositionState
+                ) {
+                    if (pathPoints.isNotEmpty()) {
+                        Polyline(
+                            points = pathPoints,
+                            color = Color(0xFF1E88E5),
+                            width = 8f
+                        )
+                        Marker(
+                            state = MarkerState(position = pathPoints.last()),
+                            title = "You",
+                            snippet = "Current Location"
+                        )
+                    }
                 }
             }
 
-            Text("Distance: %.2f meters".format(distance))
-            Text("Calories Burned: %.2f kcal".format(calories))
+            Spacer(modifier = Modifier.height(16.dp))
 
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically
+            Column(
+                modifier = Modifier
+                    .weight(0.3f)
+                    .padding(horizontal = 16.dp)
+                    .fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.SpaceEvenly
             ) {
-                when {
-                    !isTracking -> {
-                        Button(onClick = {
-                            isTracking = true
-                            isPaused = false
-                            locationService.startLocationUpdates { location ->
-                                val latLng = LatLng(location.latitude, location.longitude)
-                                pathPoints = pathPoints + latLng
+                Text("Distance: %.2f meters".format(distance))
+                Text("Speed: %.2f km/h".format(speed))
+                Text("Calories Burned: %.2f kcal".format(calories))
 
-                                cameraPositionState.move(
-                                    CameraUpdateFactory.newLatLngZoom(latLng, 18f)
-                                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    when {
+                        !isTracking -> {
+                            Button(onClick = {
+                                isTracking = true
+                                isPaused = false
+                                locationService.startLocationUpdates { location ->
+                                    val latLng = LatLng(location.latitude, location.longitude)
+                                    pathPoints = pathPoints + latLng
+                                    cameraPositionState.move(CameraUpdateFactory.newLatLngZoom(latLng, 18f))
 
-
-                                if (lastLocation != null) {
-                                    val result = FloatArray(1)
-                                    Location.distanceBetween(
-                                        lastLocation!!.latitude, lastLocation!!.longitude,
-                                        location.latitude, location.longitude,
-                                        result
-                                    )
-                                    distance += result[0]
-                                    calories = calculateCalories(distance)
+                                    val currentTime = System.currentTimeMillis()
+                                    if (lastLocation != null && lastTime != 0L) {
+                                        val result = FloatArray(1)
+                                        Location.distanceBetween(
+                                            lastLocation!!.latitude, lastLocation!!.longitude,
+                                            location.latitude, location.longitude,
+                                            result
+                                        )
+                                        val deltaTimeHours = (currentTime - lastTime).toDouble() / 3600000.0
+                                        distance += result[0]
+                                        speed = if (deltaTimeHours > 0.0) (result[0] / 1000.0) / deltaTimeHours else 0.0
+                                        calories = calculateCalories(distance, userProfile?.weightKg?.toDouble() ?: 70.0)
+                                    }
+                                    lastLocation = location
+                                    lastTime = currentTime
                                 }
-                                lastLocation = location
+                            }) {
+                                Text("Start")
                             }
-                        }) {
-                            Text("Start")
                         }
-                    }
 
-                    isTracking && !isPaused -> {
-                        Button(onClick = {
-                            isPaused = true
-                            locationService.stopLocationUpdates()
-                        }) {
-                            Text("Pause")
-                        }
-                        Button(onClick = {
-                            isTracking = false
-                            isPaused = false
-                            locationService.stopLocationUpdates()
-                            distance = 0.0
-                            calories = 0.0
-                            pathPoints = emptyList()
-                            lastLocation = null
-                        }) {
-                            Text("Stop")
-                        }
-                    }
-
-                    isTracking && isPaused -> {
-                        Button(onClick = {
-                            isPaused = false
-                            locationService.startLocationUpdates { location ->
-                                val latLng = LatLng(location.latitude, location.longitude)
-                                pathPoints = pathPoints + latLng
-
-                                scope.launch {
-                                    cameraPositionState.animate(
-                                        CameraUpdateFactory.newLatLngZoom(latLng, 18f)
-                                    )
-                                }
-
-                                if (lastLocation != null) {
-                                    val result = FloatArray(1)
-                                    Location.distanceBetween(
-                                        lastLocation!!.latitude, lastLocation!!.longitude,
-                                        location.latitude, location.longitude,
-                                        result
-                                    )
-                                    distance += result[0]
-                                    calories = calculateCalories(distance)
-                                }
-                                lastLocation = location
+                        isTracking && !isPaused -> {
+                            Button(onClick = {
+                                isPaused = true
+                                locationService.stopLocationUpdates()
+                            }) {
+                                Text("Pause")
                             }
-                        }) {
-                            Text("Resume")
+                            Button(onClick = {
+                                isTracking = false
+                                isPaused = false
+                                locationService.stopLocationUpdates()
+                                distance = 0.0
+                                calories = 0.0
+                                speed = 0.0
+                                pathPoints = emptyList()
+                                lastLocation = null
+                                lastTime = 0L
+                            }) {
+                                Text("Stop")
+                            }
                         }
-                        Button(onClick = {
-                            isTracking = false
-                            isPaused = false
-                            locationService.stopLocationUpdates()
-                            distance = 0.0
-                            calories = 0.0
-                            pathPoints = emptyList()
-                            lastLocation = null
-                        }) {
-                            Text("Stop")
+
+                        isTracking && isPaused -> {
+                            Button(onClick = {
+                                isPaused = false
+                                locationService.startLocationUpdates { location ->
+                                    val latLng = LatLng(location.latitude, location.longitude)
+                                    pathPoints = pathPoints + latLng
+
+                                    scope.launch {
+                                        cameraPositionState.animate(
+                                            CameraUpdateFactory.newLatLngZoom(latLng, 18f)
+                                        )
+                                    }
+
+                                    val currentTime = System.currentTimeMillis()
+                                    if (lastLocation != null && lastTime != 0L) {
+                                        val result = FloatArray(1)
+                                        Location.distanceBetween(
+                                            lastLocation!!.latitude, lastLocation!!.longitude,
+                                            location.latitude, location.longitude,
+                                            result
+                                        )
+                                        val deltaTimeHours = (currentTime - lastTime).toDouble() / 3600000.0
+                                        distance += result[0]
+                                        speed = if (deltaTimeHours > 0.0) (result[0] / 1000.0) / deltaTimeHours else 0.0
+                                        calories = calculateCalories(distance, userProfile?.weightKg?.toDouble() ?: 70.0)
+                                    }
+                                    lastLocation = location
+                                    lastTime = currentTime
+                                }
+                            }) {
+                                Text("Resume")
+                            }
+                            Button(onClick = {
+                                isTracking = false
+                                isPaused = false
+                                locationService.stopLocationUpdates()
+                                distance = 0.0
+                                calories = 0.0
+                                speed = 0.0
+                                pathPoints = emptyList()
+                                lastLocation = null
+                                lastTime = 0L
+                            }) {
+                                Text("Stop")
+                            }
                         }
                     }
                 }
@@ -210,9 +224,8 @@ fun MainScreen(navController: NavController) {
     }
 }
 
-// 🔥 Simple calorie calculator for now
-fun calculateCalories(distanceMeters: Double): Double {
-    val distanceKm = distanceMeters / 1000
-    val caloriesPerKm = 60.0 // approx. for 70kg person
-    return (distanceKm * caloriesPerKm * 100).roundToInt() / 100.0
+fun calculateCalories(distanceMeters: Double, weightKg: Double): Double {
+    val distanceKm = distanceMeters / 1000.0
+    val met = 3.5 // average MET for walking ~4-5 km/h
+    return ((met * weightKg * (distanceKm / 5.0)) * 100).roundToInt() / 100.0
 }
