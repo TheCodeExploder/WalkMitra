@@ -3,6 +3,8 @@
 package com.prashant.walkmitra.ui
 
 import android.content.Context
+import android.graphics.BitmapFactory
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -12,9 +14,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import com.prashant.walkmitra.data.loadWalkHistories
+import com.prashant.walkmitra.data.WalkHistory
 import org.json.JSONObject
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -38,6 +44,12 @@ fun HistoryScreen(navController: NavController, context: Context) {
         }
     }.sortedByDescending { it.date + it.startTime } // newest first
 
+    val walkHistories = remember { mutableStateListOf<WalkHistory>() }
+    LaunchedEffect(Unit) {
+        walkHistories.clear()
+        walkHistories.addAll(loadWalkHistories(context))
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -51,7 +63,7 @@ fun HistoryScreen(navController: NavController, context: Context) {
         }
     ) { padding ->
         Box(modifier = Modifier.padding(padding).fillMaxSize()) {
-            if (sessions.isEmpty()) {
+            if (sessions.isEmpty() && walkHistories.isEmpty()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Text("No walk data yet.")
                 }
@@ -73,6 +85,33 @@ fun HistoryScreen(navController: NavController, context: Context) {
                                 Text("Duration: ${session.duration}")
                                 Text("Distance: ${session.distance} m")
                                 Text("Calories: ${session.calories} kcal")
+                            }
+                        }
+                    }
+                    items(walkHistories) { history ->
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+                        ) {
+                            Column(modifier = Modifier.padding(16.dp)) {
+                                Text("Date: ${history.date}", style = MaterialTheme.typography.titleMedium)
+                                Text("Distance: ${history.distance} m")
+                                Text("Duration: ${history.duration / 1000} sec")
+                                Spacer(modifier = Modifier.height(8.dp))
+                                if (history.screenshotPath.isNotEmpty()) {
+                                    val imgFile = File(history.screenshotPath)
+                                    if (imgFile.exists()) {
+                                        val bitmap = BitmapFactory.decodeFile(imgFile.absolutePath)
+                                        Image(
+                                            bitmap = bitmap.asImageBitmap(),
+                                            contentDescription = null,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(200.dp)
+                                                .padding(top = 8.dp)
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
