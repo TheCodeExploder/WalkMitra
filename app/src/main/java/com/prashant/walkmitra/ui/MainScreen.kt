@@ -4,10 +4,12 @@
 package com.prashant.walkmitra.ui
 
 import android.Manifest
+import android.R
 import android.content.Context
 import android.content.Intent
 import android.graphics.*
 import android.location.Location
+import android.util.Log
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -29,13 +31,12 @@ import com.google.android.gms.maps.model.*
 import com.google.maps.android.compose.*
 import com.prashant.walkmitra.data.UserProfile
 import com.prashant.walkmitra.location.LocationService
+import com.prashant.walkmitra.location.LocationUpdateManager
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.roundToInt
-import com.prashant.walkmitra.location.LocationUpdateManager
-import android.util.Log
 
 @Composable
 fun MainScreen(navController: NavController, userProfile: UserProfile?) {
@@ -56,7 +57,6 @@ fun MainScreen(navController: NavController, userProfile: UserProfile?) {
     var pathPoints by remember { mutableStateOf(listOf<LatLng>()) }
     val cameraPositionState = rememberCameraPositionState()
     val sharedPreferences = context.getSharedPreferences("walkmitra_history", Context.MODE_PRIVATE)
-
 
     fun formatDuration(ms: Long): String {
         val h = ms / 3600000
@@ -197,7 +197,6 @@ fun MainScreen(navController: NavController, userProfile: UserProfile?) {
                         ContextCompat.startForegroundService(context, serviceIntent)
 
                         LocationUpdateManager.setCallback { location ->
-                            android.util.Log.d("WalkMitra", "New Location: ${location.latitude}, ${location.longitude}")
                             val latLng = LatLng(location.latitude, location.longitude)
                             pathPoints = pathPoints + latLng
 
@@ -206,18 +205,28 @@ fun MainScreen(navController: NavController, userProfile: UserProfile?) {
                             }
 
                             val currentTime = System.currentTimeMillis()
-                            if (lastLocation != null && lastTime != 0L) {
+
+                            // Calculate incremental distance
+                            if (lastLocation != null) {
                                 val result = FloatArray(1)
                                 Location.distanceBetween(
                                     lastLocation!!.latitude, lastLocation!!.longitude,
                                     location.latitude, location.longitude,
                                     result
                                 )
-                                val deltaTimeHours = (currentTime - lastTime).toDouble() / 3600000.0
                                 distance += result[0]
-                                speed = if (deltaTimeHours > 0.0) (result[0] / 1000.0) / deltaTimeHours else 0.0
-                                calories = calculateCaloriesFromWalk(distance, userProfile?.weightKg?.toDouble() ?: 70.0)
                             }
+
+                            // Always calculate average speed in km/min
+                            speed = if (elapsedTime > 0) {
+                                (distance / 1000.0) / (elapsedTime.toDouble() / 60000.0)
+                            } else 0.0
+
+                            // Update calories
+                            calories = calculateCaloriesFromWalk(
+                                distance,
+                                userProfile?.weightKg?.toDouble() ?: 70.0
+                            )
 
                             lastLocation = location
                             lastTime = currentTime
@@ -344,6 +353,7 @@ fun StatCard(icon: String, value: String) {
         }
     }
 }
+
 @Composable
 fun StatCardRow(distance: Double, speed: Double, calories: Double) {
     Row(
@@ -353,10 +363,11 @@ fun StatCardRow(distance: Double, speed: Double, calories: Double) {
         horizontalArrangement = Arrangement.SpaceEvenly
     ) {
         StatCard(icon = "📏", value = "%.2f m".format(distance))
-        StatCard(icon = "🏃‍♂️", value = "%.2f km/h".format(speed))
+        StatCard(icon = "⚡", value = "%.2f km/min".format(speed)) // updated icon and unit
         StatCard(icon = "🔥", value = "%.2f kcal".format(calories))
     }
 }
+
 @Composable
 fun Color.darken(factor: Float): Color {
     val r = (red * (1 - factor)).coerceIn(0f, 1f)

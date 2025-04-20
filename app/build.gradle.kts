@@ -64,13 +64,13 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.5.1")
     // 🔄 Jetpack Navigation
     implementation("androidx.navigation:navigation-compose:2.7.6")
-
-    // 💾 Jetpack DataStore
     implementation("androidx.datastore:datastore-preferences:1.0.0")
+
 
     // 🧠 Optional - JSON serialization (for saving object as JSON string)
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
     implementation("androidx.compose.material:material-icons-extended:1.5.4")
+    implementation(libs.androidx.appcompat)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
