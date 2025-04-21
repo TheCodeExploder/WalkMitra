@@ -7,6 +7,7 @@ package com.prashant.walkmitra.ui
 
 import android.Manifest
 import android.location.Location
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.History
@@ -15,6 +16,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -67,6 +69,11 @@ fun ProfileScreen(navController: NavController, onSave: (UserProfile) -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .background(
+                brush = Brush.verticalGradient(
+                    colors = listOf(Color(0x99FFFFFF), Color(0xCC292D3E)) // Gradient effect
+                )
+            )
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {

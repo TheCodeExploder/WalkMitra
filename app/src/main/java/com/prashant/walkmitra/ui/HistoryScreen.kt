@@ -3,6 +3,7 @@
 package com.prashant.walkmitra.ui
 
 import android.content.Context
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -11,14 +12,15 @@ import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import org.json.JSONObject
 import java.util.*
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.alpha
 
 data class WalkSession(
     val date: String,
@@ -71,9 +73,9 @@ fun HistoryScreen(navController: NavController, context: Context) {
     val (yearlyDist, yearlyCal, yearlyDur) = yearlySessions.averageStats()
 
     val summaryStats = listOf(
-        "🗓 Weekly Avg\n⏱️ ${weeklyDur / 60}m ${weeklyDur % 60}s | 📏 $weeklyDist m | 🔥 $weeklyCal kcal",
-        "🗓 Monthly Avg\n⏱️ ${monthlyDur / 60}m ${monthlyDur % 60}s | 📏 $monthlyDist m | 🔥 $monthlyCal kcal",
-        "🗓 Yearly Avg\n⏱️ ${yearlyDur / 60}m ${yearlyDur % 60}s | 📏 $yearlyDist m | 🔥 $yearlyCal kcal"
+        "🗓 Weekly Avg\n \n⏱️ ${weeklyDur / 60}m ${weeklyDur % 60}s  \n 📏 $weeklyDist m  \n 🔥 $weeklyCal kcal",
+        "🗓 Monthly Avg\n \n⏱️ ${monthlyDur / 60}m ${monthlyDur % 60}s \n 📏 $monthlyDist m \n 🔥 $monthlyCal kcal",
+        "🗓 Yearly Avg\n \n ⏱️ ${yearlyDur / 60}m ${yearlyDur % 60}s \n 📏 $yearlyDist m  \n 🔥 $yearlyCal kcal"
     )
 
     Scaffold(
@@ -92,9 +94,15 @@ fun HistoryScreen(navController: NavController, context: Context) {
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
+                .background(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(Color(0x99FFFFFF), Color(0xCC292D3E)) // Dark stylish gradient
+                    )
+                )
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
+        )
+        {
             if (recentSession != null) {
                 item {
                     Text(
@@ -102,11 +110,7 @@ fun HistoryScreen(navController: NavController, context: Context) {
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold
                     )
-                    Card(
-                        shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFFE3F2FD)),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
+                    GlassyCard {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text("📅 ${recentSession.date}")
                             Spacer(modifier = Modifier.height(8.dp))
@@ -127,11 +131,7 @@ fun HistoryScreen(navController: NavController, context: Context) {
             }
 
             items(summaryStats.size) { index ->
-                Card(
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFFF1F1F1)),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
+                GlassyCard {
                     Text(
                         text = summaryStats[index],
                         modifier = Modifier.padding(16.dp),
@@ -140,5 +140,27 @@ fun HistoryScreen(navController: NavController, context: Context) {
                 }
             }
         }
+    }
+}
+
+@Composable
+fun GlassyCard(content: @Composable () -> Unit) {
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp))
+            .background(
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        Color.White.copy(alpha = 0.4f),
+                        Color.White.copy(alpha = 0.1f)
+                    )
+                )
+            )
+            .alpha(0.85f),
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent)
+    ) {
+        content()
     }
 }
