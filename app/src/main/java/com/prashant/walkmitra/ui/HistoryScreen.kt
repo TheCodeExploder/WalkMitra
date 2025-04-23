@@ -16,10 +16,12 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import org.json.JSONObject
+import java.io.File
 import java.util.*
 
 data class WalkSession(
@@ -77,6 +79,10 @@ fun HistoryScreen(navController: NavController, context: Context) {
         "🗓 Monthly Avg\n \n⏱️ ${monthlyDur / 60}m ${monthlyDur % 60}s \n 📏 $monthlyDist m \n 🔥 $monthlyCal kcal",
         "🗓 Yearly Avg\n \n ⏱️ ${yearlyDur / 60}m ${yearlyDur % 60}s \n 📏 $yearlyDist m  \n 🔥 $yearlyCal kcal"
     )
+    val file = File(context.filesDir, "walk_screenshot.png")
+    val bitmap = remember(file) {
+        if (file.exists()) android.graphics.BitmapFactory.decodeFile(file.absolutePath) else null
+    }
 
     Scaffold(
         topBar = {
@@ -96,13 +102,32 @@ fun HistoryScreen(navController: NavController, context: Context) {
                 .fillMaxSize()
                 .background(
                     brush = Brush.verticalGradient(
-                        colors = listOf(Color(0x99FFFFFF), Color(0xCC292D3E)) // Dark stylish gradient
+                        colors = listOf(Color(0xFFB3E5FC), Color(0xFFFFE0B2)) // Dark stylish gradient
                     )
                 )
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         )
         {
+            if (bitmap != null) {
+                item {
+                    Text(
+                        text = "🗺️ Last Walk Map",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    GlassyCard {
+                        androidx.compose.foundation.Image(
+                            bitmap = bitmap.asImageBitmap(),
+                            contentDescription = "Map Screenshot",
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .aspectRatio(1.77f)
+                        )
+                    }
+                }
+            }
+
             if (recentSession != null) {
                 item {
                     Text(

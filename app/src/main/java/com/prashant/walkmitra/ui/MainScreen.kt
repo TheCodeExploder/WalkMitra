@@ -18,16 +18,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.navigation.NavController
 import com.google.accompanist.permissions.*
 import com.google.android.gms.maps.CameraUpdateFactory
-import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.android.gms.maps.model.LatLng
-import com.google.maps.android.compose.*
+import com.google.android.gms.maps.model.PolylineOptions
+import com.google.android.gms.maps.MapView
 import com.prashant.walkmitra.data.UserProfile
 import com.prashant.walkmitra.location.LocationService
 import com.prashant.walkmitra.location.LocationUpdateManager
@@ -42,9 +44,7 @@ fun MainScreen(navController: NavController, userProfile: UserProfile?) {
     val context = LocalContext.current
     val permissionState = rememberPermissionState(Manifest.permission.ACCESS_FINE_LOCATION)
     val serviceIntent = remember { Intent(context, LocationService::class.java) }
-    val cameraPositionState = rememberCameraPositionState()
     val scope = rememberCoroutineScope()
-
     var isTracking by remember { mutableStateOf(false) }
     var isPaused by remember { mutableStateOf(false) }
     var distance by remember { mutableStateOf(0.0) }
@@ -56,11 +56,10 @@ fun MainScreen(navController: NavController, userProfile: UserProfile?) {
     var lastLocation by remember { mutableStateOf<Location?>(null) }
     var lastTime by remember { mutableStateOf(0L) }
     var pathPoints by remember { mutableStateOf(listOf<LatLng>()) }
+    var mapView by remember { mutableStateOf<MapView?>(null) }
+    var isFirstLocation by remember { mutableStateOf(true) }
 
     val sharedPreferences = context.getSharedPreferences("walkmitra_history", Context.MODE_PRIVATE)
-
-    val mapUiSettings = remember { MapUiSettings(zoomControlsEnabled = false) }
-    val mapProperties by rememberUpdatedState(MapProperties(isMyLocationEnabled = true))
 
     fun formatDuration(ms: Long): String {
         val h = ms / 3600000
@@ -68,18 +67,46 @@ fun MainScreen(navController: NavController, userProfile: UserProfile?) {
         val s = (ms / 1000) % 60
         return "%02d:%02d:%02d".format(h, m, s)
     }
-
+    fun clearPersistedSession() {
+        sharedPreferences.edit()
+            .remove("isTracking")
+            .remove("isPaused")
+            .remove("elapsedTime")
+            .remove("timerStartTime")
+            .remove("distance")
+            .remove("speed")
+            .remove("calories")
+            .remove("pathPoints")
+            .apply()
+    }
     fun startTimer() {
         timerStartTime = System.currentTimeMillis() - elapsedTime
         timerJob = scope.launch {
+            var tickCount = 0
             while (true) {
                 elapsedTime = System.currentTimeMillis() - timerStartTime
+                tickCount++
+                if (tickCount % 10 == 0) {
+                    val editor = sharedPreferences.edit()
+                    editor.putBoolean("isTracking", isTracking)
+                    editor.putBoolean("isPaused", isPaused)
+                    editor.putLong("elapsedTime", elapsedTime)
+                    editor.putLong("timerStartTime", timerStartTime)
+                    editor.putFloat("distance", distance.toFloat())
+                    editor.putFloat("speed", speed.toFloat())
+                    editor.putFloat("calories", calories.toFloat())
+                    editor.putString("pathPoints", pathPoints.joinToString(";") { "${it.latitude},${it.longitude}" })
+                    editor.apply()
+                }
                 kotlinx.coroutines.delay(1000)
             }
         }
     }
 
-    fun stopTimer() = timerJob?.cancel()
+    fun stopTimer() {
+        timerJob?.cancel()
+        timerJob = null
+    }
 
     fun resetSession() {
         stopTimer()
@@ -90,6 +117,8 @@ fun MainScreen(navController: NavController, userProfile: UserProfile?) {
         pathPoints = emptyList()
         lastLocation = null
         lastTime = 0L
+        isFirstLocation = true
+        clearPersistedSession()
     }
 
     fun saveSession() {
@@ -106,6 +135,58 @@ fun MainScreen(navController: NavController, userProfile: UserProfile?) {
     LaunchedEffect(Unit) {
         if (!permissionState.status.isGranted) {
             permissionState.launchPermissionRequest()
+        }
+        if (sharedPreferences.getBoolean("isTracking", false)) {
+            isTracking = true
+            isPaused = sharedPreferences.getBoolean("isPaused", false)
+            elapsedTime = sharedPreferences.getLong("elapsedTime", 0L)
+            timerStartTime = sharedPreferences.getLong("timerStartTime", System.currentTimeMillis() - elapsedTime)
+            distance = sharedPreferences.getFloat("distance", 0f).toDouble()
+            speed = sharedPreferences.getFloat("speed", 0f).toDouble()
+            calories = sharedPreferences.getFloat("calories", 0f).toDouble()
+            val pathString = sharedPreferences.getString("pathPoints", "") ?: ""
+            try {
+                pathPoints = pathString.split(";").filter { it.contains(",") }.map {
+                    val (lat, lng) = it.split(",")
+                    LatLng(lat.toDouble(), lng.toDouble())
+                }
+            } catch (e: Exception) {
+                pathPoints = emptyList()
+            }
+            if (!isPaused) startTimer()
+        }
+    }
+
+    LaunchedEffect(isTracking) {
+        if (isTracking) {
+            LocationUpdateManager.setCallback { location ->
+                val latLng = LatLng(location.latitude, location.longitude)
+                if (isFirstLocation && latLng.latitude != 0.0 && latLng.longitude != 0.0) {
+                    mapView?.getMapAsync { map ->
+                        map.animateCamera(CameraUpdateFactory.newLatLngZoom(latLng, 18f))
+                    }
+                    isFirstLocation = false
+                }
+                pathPoints = pathPoints + latLng
+                mapView?.getMapAsync { map ->
+                    map.clear()
+                    map.addPolyline(
+                        PolylineOptions()
+                            .addAll(pathPoints)
+                            .color(android.graphics.Color.BLUE)
+                            .width(10f)
+                    )
+                }
+                lastLocation?.let {
+                    val result = FloatArray(1)
+                    Location.distanceBetween(it.latitude, it.longitude, location.latitude, location.longitude, result)
+                    distance += result[0]
+                }
+                speed = if (elapsedTime > 0) (distance / 1000.0) / (elapsedTime / 60000.0) else 0.0
+                calories = calculateCaloriesFromWalk(distance, userProfile?.weightKg?.toDouble() ?: 70.0)
+                lastLocation = location
+                lastTime = System.currentTimeMillis()
+            }
         }
     }
 
@@ -128,17 +209,13 @@ fun MainScreen(navController: NavController, userProfile: UserProfile?) {
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
-                .background(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(Color(0x99FFFFFF), Color(0xFF292D3E))
-                    )
-                )
+                .background(Brush.verticalGradient(listOf(Color(0xFFB3E5FC), Color(0xFFFFE0B2))))
                 .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFE3F2FD)),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFFEEBAA)),
                 shape = RoundedCornerShape(16.dp)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
@@ -146,49 +223,40 @@ fun MainScreen(navController: NavController, userProfile: UserProfile?) {
                     Text("Let's make today count!", fontSize = 16.sp)
                 }
             }
-
             Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .fillMaxHeight(0.6f),
+                modifier = Modifier.fillMaxWidth().fillMaxHeight(0.6f),
                 shape = RoundedCornerShape(16.dp)
             ) {
-                GoogleMap(
-                    modifier = Modifier.fillMaxSize(),
-                    cameraPositionState = cameraPositionState,
-                    uiSettings = mapUiSettings,
-                    properties = mapProperties
-                ) {
-                    if (pathPoints.isNotEmpty()) {
-                        val color = when {
-                            speed < 3 -> Color.Blue
-                            speed < 6 -> Color.Green
-                            else -> Color.Red
+                AndroidView(factory = {
+                    MapView(context).apply {
+                        onCreate(null)
+                        onResume()
+                        mapView = this
+                        getMapAsync { map ->
+                            map.uiSettings.isZoomControlsEnabled = false
+                            if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION)
+                                == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                                map.isMyLocationEnabled = true
+                            }
                         }
-                        Polyline(points = pathPoints, color = color, width = 16f)
-                        Marker(
-                            state = MarkerState(position = pathPoints.last()),
-                            icon = BitmapDescriptorFactory.defaultMarker(),
-                            title = "You",
-                            snippet = "Current Location"
-                        )
                     }
-                }
+                }, modifier = Modifier.fillMaxSize())
             }
-
             StatCardRow(distance, speed, calories)
 
             Text(
-                "Time: ${formatDuration(elapsedTime)}",
-                modifier = Modifier.align(Alignment.CenterHorizontally),
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Medium
-            )
-
-            Row(
+                text = formatDuration(elapsedTime),
+                fontFamily = FontFamily.Monospace,
+                fontSize = 25.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF0FFF00),
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp),
+                    .align(Alignment.CenterHorizontally)
+                    .background(Color.Black, shape = RoundedCornerShape(2.dp))
+                    .padding(horizontal = 18.dp, vertical = 9.dp)
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
                 when {
@@ -198,24 +266,6 @@ fun MainScreen(navController: NavController, userProfile: UserProfile?) {
                             isPaused = false
                             startTimer()
                             ContextCompat.startForegroundService(context, serviceIntent)
-                            LocationUpdateManager.setCallback { location ->
-                                val latLng = LatLng(location.latitude, location.longitude)
-                                pathPoints = pathPoints + latLng
-                                scope.launch {
-                                    cameraPositionState.animate(CameraUpdateFactory.newLatLngZoom(latLng, 18f))
-                                }
-                                val now = System.currentTimeMillis()
-                                lastLocation?.let {
-                                    val result = FloatArray(1)
-                                    Location.distanceBetween(it.latitude, it.longitude, location.latitude, location.longitude, result)
-                                    distance += result[0]
-                                }
-                                speed = if (elapsedTime > 0) (distance / 1000.0) / (elapsedTime / 60000.0) else 0.0
-                                calories = calculateCaloriesFromWalk(distance, userProfile?.weightKg?.toDouble() ?: 70.0)
-
-                                lastLocation = location
-                                lastTime = now
-                            }
                         }) {
                             Icon(Icons.Default.PlayArrow, contentDescription = null)
                             Text("Start")
@@ -272,39 +322,36 @@ fun MainScreen(navController: NavController, userProfile: UserProfile?) {
 @Composable
 fun StatCard(icon: String, value: String, modifier: Modifier = Modifier) {
     Card(
-        modifier = modifier.height(72.dp),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.2f))
+        modifier = modifier
+            .height(80.dp)
+            .padding(4.dp),
+        shape = RoundedCornerShape(20.dp),
+        elevation = CardDefaults.cardElevation(8.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFFFE0B2)) // light cyan-blue
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(vertical = 6.dp),
+                .padding(vertical = 8.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            Text(text = icon, fontSize = 20.sp)
-            Spacer(modifier = Modifier.height(4.dp))
-            Text(
-                text = value,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = Color.White
-            )
+            Text(icon, fontSize = 24.sp)
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(value, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color.Black)
         }
     }
 }
 
+
 @Composable
 fun StatCardRow(distance: Double, speed: Double, calories: Double) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        StatCard("📏", "%.2f m".format(distance), Modifier.weight(1f))
-        StatCard("⚡", "%.2f km/h".format(speed), Modifier.weight(1f))
+        StatCard("🚶‍♂️", "%.2f m".format(distance), Modifier.weight(1f))
+        StatCard("🏁", "%.2f km/h".format(speed), Modifier.weight(1f))
         StatCard("🔥", "%.2f kcal".format(calories), Modifier.weight(1f))
     }
 }

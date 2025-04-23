@@ -71,7 +71,7 @@ fun ProfileScreen(navController: NavController, onSave: (UserProfile) -> Unit) {
             .fillMaxSize()
             .background(
                 brush = Brush.verticalGradient(
-                    colors = listOf(Color(0x99FFFFFF), Color(0xCC292D3E)) // Gradient effect
+                    colors = listOf(Color(0xFFB3E5FC), Color(0xFFFFE0B2)) // Gradient effect
                 )
             )
             .padding(16.dp),

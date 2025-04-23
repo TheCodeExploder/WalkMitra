@@ -65,6 +65,7 @@ dependencies {
     // 🔄 Jetpack Navigation
     implementation("androidx.navigation:navigation-compose:2.7.6")
     implementation("androidx.datastore:datastore-preferences:1.0.0")
+    implementation("com.google.android.gms:play-services-maps:18.2.0")
 
 
     // 🧠 Optional - JSON serialization (for saving object as JSON string)
