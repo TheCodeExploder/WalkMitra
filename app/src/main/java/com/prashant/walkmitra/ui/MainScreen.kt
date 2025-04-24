@@ -6,6 +6,11 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.location.Location
+import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import androidx.annotation.RequiresApi
+import androidx.annotation.RequiresPermission
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -15,6 +20,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -38,6 +44,18 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 import kotlin.math.roundToInt
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.clickable
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.vector.ImageVector
+import com.google.android.gms.maps.model.CameraPosition
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 
 @Composable
 fun MainScreen(navController: NavController, userProfile: UserProfile?) {
@@ -120,6 +138,22 @@ fun MainScreen(navController: NavController, userProfile: UserProfile?) {
         isFirstLocation = true
         clearPersistedSession()
     }
+    @Composable
+    fun GpsSignalIndicator(isGpsActive: Boolean) {
+        val iconColor = if (isGpsActive) Color(0xFF4CAF50) else Color(0xFFFF5252) // green/red
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp),
+            horizontalArrangement = Arrangement.End
+        ) {
+            Icon(
+                imageVector = Icons.Default.GpsFixed,
+                contentDescription = "GPS Signal",
+                tint = iconColor
+            )
+        }
+    }
 
     fun saveSession() {
         val date = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
@@ -130,6 +164,19 @@ fun MainScreen(navController: NavController, userProfile: UserProfile?) {
         val sessions = sharedPreferences.getStringSet("sessions", mutableSetOf())!!.toMutableSet()
         sessions.add(sessionJson)
         sharedPreferences.edit().putStringSet("sessions", sessions).apply()
+    }
+    @RequiresApi(Build.VERSION_CODES.O)
+    @RequiresPermission(Manifest.permission.VIBRATE)
+    fun vibrateCompat(context: Context, duration: Long = 50L) {
+        val vibrator = ContextCompat.getSystemService(context, Vibrator::class.java)
+        vibrator?.let {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                it.vibrate(VibrationEffect.createOneShot(duration, VibrationEffect.DEFAULT_AMPLITUDE))
+            } else {
+                @Suppress("DEPRECATION")
+                it.vibrate(duration)
+            }
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -163,7 +210,17 @@ fun MainScreen(navController: NavController, userProfile: UserProfile?) {
                 val latLng = LatLng(location.latitude, location.longitude)
                 if (isFirstLocation && latLng.latitude != 0.0 && latLng.longitude != 0.0) {
                     mapView?.getMapAsync { map ->
-                        map.animateCamera(CameraUpdateFactory.newLatLngZoom(latLng, 18f))
+                        map.animateCamera(
+                            CameraUpdateFactory.newCameraPosition(
+                                CameraPosition.Builder()
+                                    .target(latLng)
+                                    .zoom(18f)
+                                    .tilt(0f) // 0° = 2D flat view
+                                    .bearing(0f)
+                                    .build()
+                            )
+                        )
+
                     }
                     isFirstLocation = false
                 }
@@ -173,8 +230,8 @@ fun MainScreen(navController: NavController, userProfile: UserProfile?) {
                     map.addPolyline(
                         PolylineOptions()
                             .addAll(pathPoints)
-                            .color(android.graphics.Color.BLUE)
-                            .width(10f)
+                            .color(android.graphics.Color.GREEN)
+                            .width(20f)
                     )
                 }
                 lastLocation?.let {
@@ -212,10 +269,12 @@ fun MainScreen(navController: NavController, userProfile: UserProfile?) {
                 .background(Brush.verticalGradient(listOf(Color(0xFFB3E5FC), Color(0xFFFFE0B2))))
                 .padding(12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
+
         ) {
+            GpsSignalIndicator(isGpsActive = isTracking && !isPaused)
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFFEEBAA)),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFF8F8F8)),
                 shape = RoundedCornerShape(16.dp)
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
@@ -224,8 +283,14 @@ fun MainScreen(navController: NavController, userProfile: UserProfile?) {
                 }
             }
             Card(
-                modifier = Modifier.fillMaxWidth().fillMaxHeight(0.6f),
-                shape = RoundedCornerShape(16.dp)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(300.dp)
+                    .padding(horizontal = 12.dp) // ✅ Apply padding here
+                    .shadow(8.dp, RoundedCornerShape(20.dp)), // Optional: Stronger 3D feel
+                shape = RoundedCornerShape(20.dp),
+                elevation = CardDefaults.cardElevation(8.dp)
+
             ) {
                 AndroidView(factory = {
                     MapView(context).apply {
@@ -242,96 +307,227 @@ fun MainScreen(navController: NavController, userProfile: UserProfile?) {
                     }
                 }, modifier = Modifier.fillMaxSize())
             }
-            StatCardRow(distance, speed, calories)
+            StatCardRow(distance, speed, calories, isTracking)
 
-            Text(
-                text = formatDuration(elapsedTime),
-                fontFamily = FontFamily.Monospace,
-                fontSize = 25.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color(0xFF0FFF00),
+            Card(
                 modifier = Modifier
                     .align(Alignment.CenterHorizontally)
-                    .background(Color.Black, shape = RoundedCornerShape(2.dp))
-                    .padding(horizontal = 18.dp, vertical = 9.dp)
-            )
+                    .padding(8.dp)
+                    .height(50.dp)
+                    .widthIn(min = 150.dp)
+                    .graphicsLayer {
+                        shadowElevation = 12.dp.toPx()
+                        shape = RoundedCornerShape(11.dp)
+                        clip = true
+                    },
+                elevation = CardDefaults.cardElevation(12.dp),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.Transparent)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(
+                                    Color(0xFFF8F8F8),
+                                    Color(0xFFDDDDDD)
+                                )
+                            )
+                        )
+                        .padding(12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = formatDuration(elapsedTime),
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 20.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = Color.Black
+                    )
+                }
+            }
+
+
             Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                when {
-                    !isTracking -> {
-                        Button(onClick = {
+                @Composable
+                fun Bouncy3DButton(
+                    onClick: () -> Unit,
+                    color: Brush,
+                    icon: ImageVector,
+                    text: String
+                ) {
+                    var pressed by remember { mutableStateOf(false) }
+                    val scale by animateFloatAsState(if (pressed) 0.94f else 1f, label = "bounce")
+
+                    Card(
+                        modifier = Modifier
+                            .scale(scale)
+                            .padding(6.dp)
+                            .shadow(12.dp, RoundedCornerShape(50))
+                            .clip(RoundedCornerShape(50))
+                            .clickable {
+                                pressed = true
+                                onClick()
+                            },
+                        elevation = CardDefaults.cardElevation(10.dp),
+                        colors = CardDefaults.cardColors(containerColor = Color.Transparent)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .background(brush = color)
+                                .padding(horizontal = 20.dp, vertical = 12.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(icon, contentDescription = null, tint = Color.White)
+                                Spacer(Modifier.width(8.dp))
+                                Text(text, color = Color.White, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+
+                    LaunchedEffect(pressed) {
+                        if (pressed) {
+                            kotlinx.coroutines.delay(120)
+                            pressed = false
+                        }
+                    }
+                }
+
+                @Composable
+                fun BouncyButton(
+                    onClick: () -> Unit,
+                    color: Color,
+                    icon: ImageVector,
+                    text: String
+                ) {
+                    var pressed by remember { mutableStateOf(false) }
+                    val scale by animateFloatAsState(
+                        targetValue = if (pressed) 0.9f else 1f,
+                        label = "scaleAnim"
+                    )
+
+                    Button(
+                        onClick = {
+                            pressed = true
+                            onClick()
+                        },
+                        modifier = Modifier.scale(scale),
+                        colors = ButtonDefaults.buttonColors(containerColor = color)
+                    ) {
+                        Icon(icon, contentDescription = null)
+                        Text(text)
+                    }
+
+                    // Reset press state
+                    LaunchedEffect(pressed) {
+                        if (pressed) {
+                            kotlinx.coroutines.delay(150)
+                            pressed = false
+                        }
+                    }
+                }
+
+                if (!isTracking) {
+                    BouncyButton(
+                        onClick = {
                             isTracking = true
                             isPaused = false
                             startTimer()
                             ContextCompat.startForegroundService(context, serviceIntent)
-                        }) {
-                            Icon(Icons.Default.PlayArrow, contentDescription = null)
-                            Text("Start")
-                        }
-                    }
-                    isTracking && !isPaused -> {
-                        Button(onClick = {
+                        },
+                        color = Color(0xFF4CAF50), // Green
+                        icon = Icons.Default.PlayArrow,
+                        text = "Start"
+                    )
+                } else if (isTracking && !isPaused) {
+                    BouncyButton(
+                        onClick = {
                             isPaused = true
                             stopTimer()
                             context.stopService(serviceIntent)
-                        }) {
-                            Icon(Icons.Default.Pause, contentDescription = null)
-                            Text("Pause")
-                        }
-                        Button(onClick = {
+                        },
+                        color = Color(0xFFFF9800), // Orange
+                        icon = Icons.Default.Pause,
+                        text = "Pause"
+                    )
+                    BouncyButton(
+                        onClick = {
                             isTracking = false
                             stopTimer()
                             context.stopService(serviceIntent)
                             saveSession()
                             resetSession()
                             navController.navigate("history")
-                        }) {
-                            Icon(Icons.Default.Stop, contentDescription = null)
-                            Text("Stop")
-                        }
-                    }
-                    isTracking && isPaused -> {
-                        Button(onClick = {
+                        },
+                        color = Color(0xFFF44336), // Red
+                        icon = Icons.Default.Stop,
+                        text = "Stop"
+                    )
+                } else if (isTracking && isPaused) {
+                    BouncyButton(
+                        onClick = {
                             isPaused = false
                             startTimer()
                             ContextCompat.startForegroundService(context, serviceIntent)
-                        }) {
-                            Icon(Icons.Default.PlayArrow, contentDescription = null)
-                            Text("Resume")
-                        }
-                        Button(onClick = {
+                        },
+                        color = Color(0xFF4CAF50), // Green
+                        icon = Icons.Default.PlayArrow,
+                        text = "Resume"
+                    )
+                    BouncyButton(
+                        onClick = {
                             isTracking = false
                             stopTimer()
                             context.stopService(serviceIntent)
                             saveSession()
                             resetSession()
                             navController.navigate("history")
-                        }) {
-                            Icon(Icons.Default.Stop, contentDescription = null)
-                            Text("Stop")
-                        }
-                    }
+                        },
+                        color = Color(0xFFF44336), // Red
+                        icon = Icons.Default.Stop,
+                        text = "Stop"
+                    )
                 }
             }
+
         }
     }
 }
 
 @Composable
-fun StatCard(icon: String, value: String, modifier: Modifier = Modifier) {
+fun StatCard(icon: String, value: String, modifier: Modifier = Modifier, isTracking: Boolean) {
+    val pulseScale by animateFloatAsState(
+        targetValue = if (isTracking) 1.05f else 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1000, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "pulse"
+    )
+
     Card(
         modifier = modifier
+            .graphicsLayer {
+                scaleX = pulseScale
+                scaleY = pulseScale
+            }
             .height(80.dp)
             .padding(4.dp),
         shape = RoundedCornerShape(20.dp),
         elevation = CardDefaults.cardElevation(8.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFFFFE0B2)) // light cyan-blue
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFFFE0B2))
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .verticalScroll(rememberScrollState())
                 .padding(vertical = 8.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
@@ -344,17 +540,21 @@ fun StatCard(icon: String, value: String, modifier: Modifier = Modifier) {
 }
 
 
+
 @Composable
-fun StatCardRow(distance: Double, speed: Double, calories: Double) {
+fun StatCardRow(distance: Double, speed: Double, calories: Double, isTracking: Boolean) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        StatCard("🚶‍♂️", "%.2f m".format(distance), Modifier.weight(1f))
-        StatCard("🏁", "%.2f km/h".format(speed), Modifier.weight(1f))
-        StatCard("🔥", "%.2f kcal".format(calories), Modifier.weight(1f))
+        StatCard("🚶‍♂️", "%.2f m".format(distance), Modifier.weight(1f), isTracking)
+        StatCard("🏁", "%.2f km/h".format(speed), Modifier.weight(1f), isTracking)
+        StatCard("🔥", "%.2f kcal".format(calories), Modifier.weight(1f), isTracking)
     }
 }
+
 
 fun calculateCaloriesFromWalk(distanceMeters: Double, weightKg: Double): Double {
     val distanceKm = distanceMeters / 1000.0
