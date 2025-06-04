@@ -20,67 +20,50 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
-import org.json.JSONObject
+import com.prashant.walkmitra.data.WalkHistory
+import com.prashant.walkmitra.data.loadWalkHistories
 import java.io.File
 import java.util.*
 
-data class WalkSession(
-    val date: String,
-    val startTime: String,
-    val endTime: String,
-    val duration: String,
-    val distance: Int,
-    val calories: Int
-)
+private fun formatDuration(ms: Long): String {
+    val h = ms / 3600000
+    val m = (ms / 60000) % 60
+    val s = (ms / 1000) % 60
+    return "%02d:%02d:%02d".format(h, m, s)
+}
+
 
 @Composable
 fun HistoryScreen(navController: NavController, context: Context) {
-    val sharedPreferences = context.getSharedPreferences("walkmitra_history", Context.MODE_PRIVATE)
-    val sessionSet = sharedPreferences.getStringSet("sessions", emptySet()) ?: emptySet()
-    val sessions = sessionSet.mapNotNull { json ->
-        try {
-            val obj = JSONObject(json)
-            WalkSession(
-                date = obj.getString("date"),
-                startTime = obj.getString("startTime"),
-                endTime = obj.getString("endTime"),
-                duration = obj.getString("duration"),
-                distance = obj.getInt("distance"),
-                calories = obj.getInt("calories")
-            )
-        } catch (e: Exception) {
-            null
-        }
-    }.sortedByDescending { it.date + it.startTime }
+    var sessions by remember { mutableStateOf<List<WalkHistory>>(emptyList()) }
+    LaunchedEffect(Unit) {
+        sessions = loadWalkHistories(context).sortedByDescending { it.date }
+    }
 
     val recentSession = sessions.firstOrNull()
     val weeklySessions = sessions.take(7)
     val monthlySessions = sessions.take(30)
     val yearlySessions = sessions
 
-    fun List<WalkSession>.averageStats(): Triple<Int, Int, Int> {
-        val totalDistance = this.sumOf { it.distance }
-        val totalCalories = this.sumOf { it.calories }
-        val totalDuration = this.sumOf {
-            val (h, m, s) = it.duration.split(":").mapNotNull { part -> part.toIntOrNull() }
-                .let { t -> Triple(t.getOrNull(0) ?: 0, t.getOrNull(1) ?: 0, t.getOrNull(2) ?: 0) }
-            h * 3600 + m * 60 + s
-        }
-        val count = this.size.coerceAtLeast(1)
-        return Triple(totalDistance / count, totalCalories / count, totalDuration / count)
+    fun List<WalkHistory>.averageStats(): Pair<Int, Long> {
+        val totalDistance = sumOf { it.distance.toInt() }
+        val totalDuration = sumOf { it.duration }
+        val count = size.coerceAtLeast(1)
+        return totalDistance / count to totalDuration / count
     }
 
-    val (weeklyDist, weeklyCal, weeklyDur) = weeklySessions.averageStats()
-    val (monthlyDist, monthlyCal, monthlyDur) = monthlySessions.averageStats()
-    val (yearlyDist, yearlyCal, yearlyDur) = yearlySessions.averageStats()
+    val (weeklyDist, weeklyDur) = weeklySessions.averageStats()
+    val (monthlyDist, monthlyDur) = monthlySessions.averageStats()
+    val (yearlyDist, yearlyDur) = yearlySessions.averageStats()
 
     val summaryStats = listOf(
-        "🗓 Weekly Avg\n \n⏱️ ${weeklyDur / 60}m ${weeklyDur % 60}s  \n 📏 $weeklyDist m  \n 🔥 $weeklyCal kcal",
-        "🗓 Monthly Avg\n \n⏱️ ${monthlyDur / 60}m ${monthlyDur % 60}s \n 📏 $monthlyDist m \n 🔥 $monthlyCal kcal",
-        "🗓 Yearly Avg\n \n ⏱️ ${yearlyDur / 60}m ${yearlyDur % 60}s \n 📏 $yearlyDist m  \n 🔥 $yearlyCal kcal"
+        "🗓 Weekly Avg\n \n⏱️ ${weeklyDur / 60000}m ${(weeklyDur / 1000) % 60}s \n 📏 $weeklyDist m",
+        "🗓 Monthly Avg\n \n⏱️ ${monthlyDur / 60000}m ${(monthlyDur / 1000) % 60}s \n 📏 $monthlyDist m",
+        "🗓 Yearly Avg\n \n⏱️ ${yearlyDur / 60000}m ${(yearlyDur / 1000) % 60}s \n 📏 $yearlyDist m"
     )
-    val file = File(context.filesDir, "walk_screenshot.png")
-    val bitmap = remember(file) {
+
+    val bitmap = recentSession?.screenshotPath?.let { path ->
+        val file = File(path)
         if (file.exists()) android.graphics.BitmapFactory.decodeFile(file.absolutePath) else null
     }
 
@@ -139,9 +122,8 @@ fun HistoryScreen(navController: NavController, context: Context) {
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text("📅 ${recentSession.date}")
                             Spacer(modifier = Modifier.height(8.dp))
-                            Text("⏱️ Duration: ${recentSession.duration}")
+                            Text("⏱️ Duration: ${formatDuration(recentSession.duration)}")
                             Text("📏 Distance: ${recentSession.distance} m")
-                            Text("🔥 Calories: ${recentSession.calories} kcal")
                         }
                     }
                 }

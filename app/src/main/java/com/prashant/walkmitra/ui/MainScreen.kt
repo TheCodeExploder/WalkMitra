@@ -6,11 +6,6 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.location.Location
-import android.os.Build
-import android.os.VibrationEffect
-import android.os.Vibrator
-import androidx.annotation.RequiresApi
-import androidx.annotation.RequiresPermission
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -56,6 +51,13 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import java.io.File
+import java.io.FileOutputStream
+import android.graphics.Bitmap
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+import com.prashant.walkmitra.ui.BouncyButton
+import com.prashant.walkmitra.ui.GpsSignalIndicator
 
 @Composable
 fun MainScreen(navController: NavController, userProfile: UserProfile?) {
@@ -137,46 +139,6 @@ fun MainScreen(navController: NavController, userProfile: UserProfile?) {
         lastTime = 0L
         isFirstLocation = true
         clearPersistedSession()
-    }
-    @Composable
-    fun GpsSignalIndicator(isGpsActive: Boolean) {
-        val iconColor = if (isGpsActive) Color(0xFF4CAF50) else Color(0xFFFF5252) // green/red
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp),
-            horizontalArrangement = Arrangement.End
-        ) {
-            Icon(
-                imageVector = Icons.Default.GpsFixed,
-                contentDescription = "GPS Signal",
-                tint = iconColor
-            )
-        }
-    }
-
-    fun saveSession() {
-        val date = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
-        val startTime = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(timerStartTime))
-        val endTime = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(timerStartTime + elapsedTime))
-        val duration = formatDuration(elapsedTime)
-        val sessionJson = """{"date":"$date","startTime":"$startTime","endTime":"$endTime","duration":"$duration","distance":${distance.roundToInt()},"calories":${calories.roundToInt()}}"""
-        val sessions = sharedPreferences.getStringSet("sessions", mutableSetOf())!!.toMutableSet()
-        sessions.add(sessionJson)
-        sharedPreferences.edit().putStringSet("sessions", sessions).apply()
-    }
-    @RequiresApi(Build.VERSION_CODES.O)
-    @RequiresPermission(Manifest.permission.VIBRATE)
-    fun vibrateCompat(context: Context, duration: Long = 50L) {
-        val vibrator = ContextCompat.getSystemService(context, Vibrator::class.java)
-        vibrator?.let {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                it.vibrate(VibrationEffect.createOneShot(duration, VibrationEffect.DEFAULT_AMPLITUDE))
-            } else {
-                @Suppress("DEPRECATION")
-                it.vibrate(duration)
-            }
-        }
     }
 
     LaunchedEffect(Unit) {
@@ -355,84 +317,6 @@ fun MainScreen(navController: NavController, userProfile: UserProfile?) {
                     .padding(vertical = 8.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                @Composable
-                fun Bouncy3DButton(
-                    onClick: () -> Unit,
-                    color: Brush,
-                    icon: ImageVector,
-                    text: String
-                ) {
-                    var pressed by remember { mutableStateOf(false) }
-                    val scale by animateFloatAsState(if (pressed) 0.94f else 1f, label = "bounce")
-
-                    Card(
-                        modifier = Modifier
-                            .scale(scale)
-                            .padding(6.dp)
-                            .shadow(12.dp, RoundedCornerShape(50))
-                            .clip(RoundedCornerShape(50))
-                            .clickable {
-                                pressed = true
-                                onClick()
-                            },
-                        elevation = CardDefaults.cardElevation(10.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color.Transparent)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .background(brush = color)
-                                .padding(horizontal = 20.dp, vertical = 12.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(icon, contentDescription = null, tint = Color.White)
-                                Spacer(Modifier.width(8.dp))
-                                Text(text, color = Color.White, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                    }
-
-                    LaunchedEffect(pressed) {
-                        if (pressed) {
-                            kotlinx.coroutines.delay(120)
-                            pressed = false
-                        }
-                    }
-                }
-
-                @Composable
-                fun BouncyButton(
-                    onClick: () -> Unit,
-                    color: Color,
-                    icon: ImageVector,
-                    text: String
-                ) {
-                    var pressed by remember { mutableStateOf(false) }
-                    val scale by animateFloatAsState(
-                        targetValue = if (pressed) 0.9f else 1f,
-                        label = "scaleAnim"
-                    )
-
-                    Button(
-                        onClick = {
-                            pressed = true
-                            onClick()
-                        },
-                        modifier = Modifier.scale(scale),
-                        colors = ButtonDefaults.buttonColors(containerColor = color)
-                    ) {
-                        Icon(icon, contentDescription = null)
-                        Text(text)
-                    }
-
-                    // Reset press state
-                    LaunchedEffect(pressed) {
-                        if (pressed) {
-                            kotlinx.coroutines.delay(150)
-                            pressed = false
-                        }
-                    }
-                }
 
                 if (!isTracking) {
                     BouncyButton(
@@ -462,9 +346,12 @@ fun MainScreen(navController: NavController, userProfile: UserProfile?) {
                             isTracking = false
                             stopTimer()
                             context.stopService(serviceIntent)
-                            saveSession()
-                            resetSession()
-                            navController.navigate("history")
+                            scope.launch {
+                                val path = captureMapScreenshot(mapView, context) ?: ""
+                                saveWalkSession(context, distance, elapsedTime, path)
+                                resetSession()
+                                navController.navigate("history")
+                            }
                         },
                         color = Color(0xFFF44336), // Red
                         icon = Icons.Default.Stop,
@@ -486,9 +373,12 @@ fun MainScreen(navController: NavController, userProfile: UserProfile?) {
                             isTracking = false
                             stopTimer()
                             context.stopService(serviceIntent)
-                            saveSession()
-                            resetSession()
-                            navController.navigate("history")
+                            scope.launch {
+                                val path = captureMapScreenshot(mapView, context) ?: ""
+                                saveWalkSession(context, distance, elapsedTime, path)
+                                resetSession()
+                                navController.navigate("history")
+                            }
                         },
                         color = Color(0xFFF44336), // Red
                         icon = Icons.Default.Stop,
@@ -560,4 +450,31 @@ fun calculateCaloriesFromWalk(distanceMeters: Double, weightKg: Double): Double 
     val distanceKm = distanceMeters / 1000.0
     val met = 3.5
     return ((met * weightKg * (distanceKm / 5.0)) * 100).roundToInt() / 100.0
+}
+
+suspend fun captureMapScreenshot(mapView: MapView?, context: Context): String? =
+    suspendCancellableCoroutine { cont ->
+        if (mapView == null) {
+            cont.resume(null)
+            return@suspendCancellableCoroutine
+        }
+        mapView.getMapAsync { map ->
+            map.snapshot { bmp ->
+                try {
+                    val file = File(context.filesDir, "walk_screenshot.png")
+                    FileOutputStream(file).use { out ->
+                        bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
+                    }
+                    cont.resume(file.absolutePath)
+                } catch (e: Exception) {
+                    cont.resume(null)
+                }
+            }
+        }
+    }
+
+suspend fun saveWalkSession(context: Context, distance: Double, duration: Long, screenshotPath: String) {
+    val date = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
+    val history = WalkHistory(date, distance.toFloat(), duration, screenshotPath)
+    saveWalkHistory(context, history)
 }

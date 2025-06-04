@@ -1,7 +1,6 @@
 // MapViewContainer.kt
 package com.prashant.walkmitra.ui
 
-import android.graphics.Bitmap
 import android.os.Bundle
 import android.view.ViewGroup
 import androidx.compose.runtime.*
@@ -10,7 +9,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import com.google.android.gms.maps.*
 import com.google.android.gms.maps.model.*
-import kotlinx.coroutines.CompletableDeferred
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.core.content.ContextCompat

@@ -2,7 +2,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
-    id("org.jetbrains.kotlin.plugin.serialization") version "1.9.0"
+    id("org.jetbrains.kotlin.plugin.serialization") version libs.versions.kotlin.get()
 }
 
 android {
@@ -61,19 +61,16 @@ dependencies {
     implementation("com.google.accompanist:accompanist-permissions:0.30.1") // for runtime permission handling
     implementation("com.google.android.gms:play-services-location:21.0.1") // for fused location
     implementation("androidx.datastore:datastore-preferences:1.0.0")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.5.1")
     // 🔄 Jetpack Navigation
     implementation("androidx.navigation:navigation-compose:2.7.6")
-    implementation("androidx.datastore:datastore-preferences:1.0.0")
-    implementation("com.google.android.gms:play-services-maps:18.2.0")
-
 
     // 🧠 Optional - JSON serialization (for saving object as JSON string)
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.6.3")
     implementation("androidx.compose.material:material-icons-extended:1.5.4")
     implementation(libs.androidx.appcompat)
 
     testImplementation(libs.junit)
+    testImplementation("org.robolectric:robolectric:4.11.1")
+    testImplementation("androidx.test:core:1.5.0")
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))
