@@ -32,7 +32,7 @@
         <!-- 🗺️ Google Maps API Key -->
         <meta-data
             android:name="com.google.android.geo.API_KEY"
-            android:value="AIzaSyC103Zk52ouP0GKVyWdecLMvyt6PhEoDmY" />
+            android:value="${MAPS_API_KEY}" />
 
         <!-- Optional (to support some legacy HTTP clients) -->
         <uses-library android:name="org.apache.http.legacy" android:required="false" />
